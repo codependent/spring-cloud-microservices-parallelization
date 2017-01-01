@@ -111,7 +111,7 @@ public class ParallelizationRestController {
 	}
 	
 	/**
-	 * Hystrix executed asynchronously with parallelization
+	 * Hystrix executed asynchronously with parallelization. The http thread isn't freed
 	 * @return
 	 * @throws InterruptedException
 	 * @throws ExecutionException
