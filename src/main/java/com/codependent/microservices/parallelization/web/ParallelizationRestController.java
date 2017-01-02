@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.codependent.microservices.parallelization.client.EchoServiceClient;
+import com.codependent.microservices.parallelization.client.EchoServiceFeignClient;
+import com.netflix.hystrix.HystrixCommand;
 
 import rx.Observable;
 import rx.Single;
@@ -23,6 +25,9 @@ public class ParallelizationRestController {
 	
 	@Autowired
 	private EchoServiceClient serviceClient;
+	
+	@Autowired
+	private EchoServiceFeignClient feignServiceClient;
 	
 	/**
 	 * Two sync requests, no asynchronicity, no parallelization
@@ -91,7 +96,7 @@ public class ParallelizationRestController {
 	}
 	
 	/**
-	 * Due to in the second call, the execution isn't parallelized.
+	 * Due to subscribeOn(Schedulers.io()) in the second call, the execution isn't parallelized.
 	 * @return
 	 */
 	@RequestMapping("/noParallelizationHystrixObservable3")
@@ -108,6 +113,21 @@ public class ParallelizationRestController {
 		});
 		logger.info("noParallelizationHystrixObservable4() - exiting()");
 		return resultObservable.toSingle();
+	}
+	
+	/**
+	 * Synchronous Hystrix Feign non paralleled requests
+	 * @return
+	 */
+	@RequestMapping("/noParallelizationHystrixFeign")
+	public String noParallelizationHystrixFeign(){
+		logger.info("noParallelizationHystrixFeign()");
+		String echo1 = feignServiceClient.getSyncEcho("Hello");
+		String echo2 = feignServiceClient.getSyncEcho("World!");
+		String result = echo1 + "-" + echo2;
+		logger.info("noParallelizationHystrixFeign got [{}]", result);
+		logger.info("noParallelizationHystrixFeign() - exiting()");
+		return result;
 	}
 	
 	/**
@@ -184,5 +204,85 @@ public class ParallelizationRestController {
 		logger.info("parallelizationHystrixObservable2() - exiting()");
 		return resultObservable.toSingle();
 	}	
+	
+	/**
+	 * Parallelized but returned on http thread
+	 * @return
+	 * @throws InterruptedException
+	 * @throws ExecutionException
+	 */
+	@RequestMapping("/parallelizationHystrixFeign")
+	public String parallelizationHystrixFeign() throws InterruptedException, ExecutionException{
+		logger.info("parallelizationHystrixFeign()");
+		HystrixCommand<String> echo1Hc = feignServiceClient.getAsyncHystrixEcho("Hello");
+		Future<String> echo1Future = echo1Hc.queue();
+		HystrixCommand<String> echo2Hc = feignServiceClient.getAsyncHystrixEcho("World!");
+		Future<String> echo2Future = echo2Hc.queue();
+		String result = echo1Future.get() + "-" + echo2Future.get();
+		logger.info("parallelizationHystrixFeign got [{}]", result);
+		logger.info("parallelizationHystrixFeign() - exiting()");
+		return result;
+	}
+	
+	/**
+	 * Parallelized and freeing the http thread
+	 * @return
+	 * @throws InterruptedException
+	 * @throws ExecutionException
+	 */
+	@RequestMapping("/parallelizationHystrixFeignCallable")
+	public Callable<String> parallelizationHystrixFeignCallable() throws InterruptedException, ExecutionException{
+		logger.info("parallelizationHystrixFeignCallable()");
+		HystrixCommand<String> echo1Hc = feignServiceClient.getAsyncHystrixEcho("Hello");
+		Future<String> echo1Future = echo1Hc.queue();
+		HystrixCommand<String> echo2Hc = feignServiceClient.getAsyncHystrixEcho("World!");
+		Future<String> echo2Future = echo2Hc.queue();
+		logger.info("parallelizationHystrixFeignCallable() - exiting()");
+		return () -> {
+			String result = echo1Future.get() + "-" + echo2Future.get();
+			logger.info("noParallelization got [{}]", result);
+			return result;
+		};
+	}
+	
+	/**
+	 * Parallelized and freeing the http thread
+	 * @return
+	 * @throws InterruptedException
+	 * @throws ExecutionException
+	 */
+	@RequestMapping("/parallelizationHystrixFeignSingle")
+	public Single<String> parallelizationHystrixFeignSingle() throws InterruptedException, ExecutionException{
+		logger.info("parallelizationHystrixFeignSingle()");
+		Single<String> echo1 = feignServiceClient.getAsyncHystrixReactiveEcho("Hello");
+		Single<String> echo2 = feignServiceClient.getAsyncHystrixReactiveEcho("World!");
+		logger.info("parallelizationHystrixFeignSingle() - exiting()");
+		Single<String> resultSingle = Single.zip(echo1, echo2, (String r1, String r2) -> {
+			String result = r1 + "-" + r2;
+			logger.info("parallelizationHystrixFeignSingle got [{}]", result);
+			return result;
+		});
+		return resultSingle;
+	}
+	
+	/**
+	 * Parallelized and freeing the http thread	
+	 * @return
+	 * @throws InterruptedException
+	 * @throws ExecutionException
+	 */
+	@RequestMapping("/parallelizationHystrixFeignObservable")
+	public Single<String> parallelizationHystrixFeignObservable() throws InterruptedException, ExecutionException{
+		logger.info("parallelizationHystrixFeignObservable()");
+		Observable<String> echo1 = feignServiceClient.getAsyncHystrixEcho("Hello").observe();
+		Observable<String> echo2 = feignServiceClient.getAsyncHystrixEcho("World!").observe();
+		logger.info("parallelizationHystrixFeignObservable() - exiting()");
+		Observable<String> resultObservable = Observable.zip(echo1, echo2, (String r1, String r2) -> {
+			String result = r1 + "-" + r2;
+			logger.info("parallelizationHystrixFeignObservable got [{}]", result);
+			return result;
+		});
+		return resultObservable.toSingle();
+	}
 	
 }
